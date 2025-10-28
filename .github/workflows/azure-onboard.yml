@@ -31,7 +31,7 @@ jobs:
 
       - name: Install Azure CLI and Python dependencies
         run: |
-          pip install azure-identity azure-mgmt-authorization azure-mgmt-resource azure-mgmt-subscription msgraph-sdk
+          pip install azure-identity azure-mgmt-authorization azure-mgmt-resource azure-mgmt-subscription
 
       - name: Run Azure Discovery and Configuration
         env:
