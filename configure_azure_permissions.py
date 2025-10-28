@@ -7,13 +7,11 @@ Automates the setup of Azure permissions for Infoblox integration
 import os
 import sys
 import json
+import subprocess
 from azure.identity import DefaultAzureCredential
 from azure.mgmt.subscription import SubscriptionClient
 from azure.mgmt.authorization import AuthorizationManagementClient
 from azure.mgmt.authorization.models import RoleDefinition, Permission, RoleAssignmentCreateParameters
-from msgraph import GraphServiceClient
-from msgraph.generated.service_principals.service_principals_request_builder import ServicePrincipalsRequestBuilder
-from msgraph.generated.models.service_principal import ServicePrincipal
 import uuid
 
 def get_infoblox_app_id():
@@ -131,37 +129,49 @@ def discover_azure_context(credential, target_subscription_id=None):
 def create_or_get_service_principal(credential, app_id):
     """
     Create or retrieve the service principal for the Infoblox application
+    Uses Azure CLI commands via subprocess for reliability
     """
     print(f"\nCreating/retrieving service principal for App ID: {app_id}...")
 
     try:
-        # Initialize Microsoft Graph client
-        graph_client = GraphServiceClient(credentials=credential)
-
-        # Check if service principal already exists
-        query_params = ServicePrincipalsRequestBuilder.ServicePrincipalsRequestBuilderGetQueryParameters(
-            filter=f"appId eq '{app_id}'"
-        )
-        request_config = ServicePrincipalsRequestBuilder.ServicePrincipalsRequestBuilderGetRequestConfiguration(
-            query_parameters=query_params
+        # Try to get existing service principal
+        print("  Checking if service principal already exists...")
+        result = subprocess.run(
+            ['az', 'ad', 'sp', 'show', '--id', app_id],
+            capture_output=True,
+            text=True
         )
 
-        result = graph_client.service_principals.get(request_configuration=request_config)
+        if result.returncode == 0:
+            # Service principal exists
+            sp_data = json.loads(result.stdout)
+            sp_id = sp_data['id']
+            print(f"  ✓ Service Principal already exists: {sp_id}")
+            return sp_id
 
-        if result and result.value and len(result.value) > 0:
-            sp = result.value[0]
-            print(f"  Service Principal already exists: {sp.id}")
-            return sp.id
-
-        # Create new service principal if it doesn't exist
-        request_body = ServicePrincipal(
-            app_id=app_id
+        # Service principal doesn't exist, create it
+        print("  Creating new service principal...")
+        result = subprocess.run(
+            ['az', 'ad', 'sp', 'create', '--id', app_id],
+            capture_output=True,
+            text=True
         )
 
-        sp = graph_client.service_principals.post(request_body)
-        print(f"  Created Service Principal: {sp.id}")
-        return sp.id
+        if result.returncode != 0:
+            print(f"ERROR creating service principal: {result.stderr}")
+            sys.exit(1)
 
+        sp_data = json.loads(result.stdout)
+        sp_id = sp_data['id']
+        print(f"  ✓ Created Service Principal: {sp_id}")
+        return sp_id
+
+    except subprocess.CalledProcessError as e:
+        print(f"ERROR: Azure CLI command failed: {str(e)}")
+        sys.exit(1)
+    except json.JSONDecodeError as e:
+        print(f"ERROR: Could not parse Azure CLI output: {str(e)}")
+        sys.exit(1)
     except Exception as e:
         print(f"ERROR creating/retrieving service principal: {str(e)}")
         sys.exit(1)
