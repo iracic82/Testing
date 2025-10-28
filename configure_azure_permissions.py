@@ -43,8 +43,18 @@ def discover_azure_context(credential, target_subscription_id=None):
         print("ERROR: No accessible subscriptions found")
         sys.exit(1)
 
-    # Get tenant ID from first subscription (all subscriptions in same tenant)
-    tenant_id = all_subscriptions[0].tenant_id
+    # Get tenant ID from first subscription (handle different SDK versions)
+    first_sub = all_subscriptions[0]
+    if hasattr(first_sub, 'tenant_id'):
+        tenant_id = first_sub.tenant_id
+    elif hasattr(first_sub, 'home_tenant_id'):
+        tenant_id = first_sub.home_tenant_id
+    else:
+        # Fallback: get tenant ID from the credential token
+        from azure.mgmt.resource import ResourceManagementClient
+        resource_client = ResourceManagementClient(credential, first_sub.subscription_id)
+        sub_details = resource_client.subscriptions.get(first_sub.subscription_id)
+        tenant_id = sub_details.tenant_id if hasattr(sub_details, 'tenant_id') else sub_details.home_tenant_id
 
     # Determine mode: Single or Auto-Discover Multiple
     if target_subscription_id and target_subscription_id.strip():
