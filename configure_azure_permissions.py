@@ -43,28 +43,40 @@ def discover_azure_context(credential, target_subscription_id=None):
         print("ERROR: No accessible subscriptions found")
         sys.exit(1)
 
-    # Get tenant ID from first subscription (handle different SDK versions)
-    first_sub = all_subscriptions[0]
-    tenant_id = None
+    # Get tenant ID from the credential token
+    # Request a token to extract tenant information
+    try:
+        token = credential.get_token("https://management.azure.com/.default")
+        # Decode the token to get tenant ID
+        import base64
+        # JWT tokens have 3 parts separated by dots
+        token_parts = token.token.split('.')
+        if len(token_parts) >= 2:
+            # Add padding if needed for base64 decoding
+            payload = token_parts[1]
+            padding = 4 - len(payload) % 4
+            if padding != 4:
+                payload += '=' * padding
+            decoded = base64.b64decode(payload)
+            token_data = json.loads(decoded)
+            tenant_id = token_data.get('tid')
+        else:
+            tenant_id = None
+    except Exception as e:
+        print(f"Warning: Could not extract tenant ID from token: {str(e)}")
+        tenant_id = None
 
-    # Try different attribute names depending on SDK version
-    for attr_name in ['tenant_id', 'home_tenant_id']:
-        if hasattr(first_sub, attr_name):
-            tenant_id = getattr(first_sub, attr_name)
-            break
+    # Fallback: try to get from subscription object attributes
+    if not tenant_id:
+        first_sub = all_subscriptions[0]
+        for attr_name in ['tenant_id', 'home_tenant_id']:
+            if hasattr(first_sub, attr_name):
+                tenant_id = getattr(first_sub, attr_name)
+                break
 
     if not tenant_id:
-        # Last resort: get from subscription details
-        try:
-            sub_details = subscription_client.subscriptions.get(first_sub.subscription_id)
-            tenant_id = getattr(sub_details, 'tenant_id', None) or getattr(sub_details, 'home_tenant_id', None)
-        except Exception as e:
-            print(f"ERROR: Could not determine tenant ID: {str(e)}")
-            print("Please contact support with this error message.")
-            sys.exit(1)
-
-    if not tenant_id:
-        print("ERROR: Could not determine tenant ID from subscription information.")
+        print("ERROR: Could not determine tenant ID.")
+        print("Please ensure you have proper Azure permissions.")
         sys.exit(1)
 
     # Determine mode: Single or Auto-Discover Multiple
