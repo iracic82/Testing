@@ -45,16 +45,27 @@ def discover_azure_context(credential, target_subscription_id=None):
 
     # Get tenant ID from first subscription (handle different SDK versions)
     first_sub = all_subscriptions[0]
-    if hasattr(first_sub, 'tenant_id'):
-        tenant_id = first_sub.tenant_id
-    elif hasattr(first_sub, 'home_tenant_id'):
-        tenant_id = first_sub.home_tenant_id
-    else:
-        # Fallback: get tenant ID from the credential token
-        from azure.mgmt.resource import ResourceManagementClient
-        resource_client = ResourceManagementClient(credential, first_sub.subscription_id)
-        sub_details = resource_client.subscriptions.get(first_sub.subscription_id)
-        tenant_id = sub_details.tenant_id if hasattr(sub_details, 'tenant_id') else sub_details.home_tenant_id
+    tenant_id = None
+
+    # Try different attribute names depending on SDK version
+    for attr_name in ['tenant_id', 'home_tenant_id']:
+        if hasattr(first_sub, attr_name):
+            tenant_id = getattr(first_sub, attr_name)
+            break
+
+    if not tenant_id:
+        # Last resort: get from subscription details
+        try:
+            sub_details = subscription_client.subscriptions.get(first_sub.subscription_id)
+            tenant_id = getattr(sub_details, 'tenant_id', None) or getattr(sub_details, 'home_tenant_id', None)
+        except Exception as e:
+            print(f"ERROR: Could not determine tenant ID: {str(e)}")
+            print("Please contact support with this error message.")
+            sys.exit(1)
+
+    if not tenant_id:
+        print("ERROR: Could not determine tenant ID from subscription information.")
+        sys.exit(1)
 
     # Determine mode: Single or Auto-Discover Multiple
     if target_subscription_id and target_subscription_id.strip():
