@@ -134,46 +134,51 @@ def create_or_get_service_principal(credential, app_id):
     print(f"\nCreating/retrieving service principal for App ID: {app_id}...")
 
     try:
-        # Try to get existing service principal
-        print("  Checking if service principal already exists...")
-        result = subprocess.run(
-            ['az', 'ad', 'sp', 'show', '--id', app_id],
-            capture_output=True,
-            text=True
-        )
-
-        if result.returncode == 0:
-            # Service principal exists
-            sp_data = json.loads(result.stdout)
-            sp_id = sp_data['id']
-            print(f"  ✓ Service Principal already exists: {sp_id}")
-            return sp_id
-
-        # Service principal doesn't exist, create it
-        print("  Creating new service principal...")
+        # Strategy: Try to create first, if it fails check if it already exists
+        print("  Attempting to create service principal...")
         result = subprocess.run(
             ['az', 'ad', 'sp', 'create', '--id', app_id],
             capture_output=True,
             text=True
         )
 
-        if result.returncode != 0:
-            print(f"ERROR creating service principal: {result.stderr}")
-            sys.exit(1)
+        if result.returncode == 0:
+            # Successfully created
+            sp_data = json.loads(result.stdout)
+            sp_id = sp_data['id']
+            print(f"  ✓ Created Service Principal: {sp_id}")
+            return sp_id
 
-        sp_data = json.loads(result.stdout)
-        sp_id = sp_data['id']
-        print(f"  ✓ Created Service Principal: {sp_id}")
-        return sp_id
+        # Creation failed - check if it already exists
+        stderr_lower = result.stderr.lower()
+        if "already in use" in stderr_lower or "already exists" in stderr_lower or "insufficient privileges" in stderr_lower:
+            print("  Service principal may already exist, attempting to retrieve...")
+            result = subprocess.run(
+                ['az', 'ad', 'sp', 'show', '--id', app_id],
+                capture_output=True,
+                text=True
+            )
 
-    except subprocess.CalledProcessError as e:
-        print(f"ERROR: Azure CLI command failed: {str(e)}")
+            if result.returncode == 0:
+                sp_data = json.loads(result.stdout)
+                sp_id = sp_data['id']
+                print(f"  ✓ Service Principal already exists: {sp_id}")
+                return sp_id
+
+        # Could not create or retrieve
+        print(f"\nERROR: Could not create or retrieve service principal.")
+        print(f"Details: {result.stderr}")
+        print("\nPossible solutions:")
+        print("1. The service principal may already exist but you lack permissions to see it")
+        print("2. Your GitHub Actions service principal needs 'Application Administrator' role in Azure AD")
+        print("3. Contact your Azure administrator to grant the necessary permissions")
         sys.exit(1)
+
     except json.JSONDecodeError as e:
         print(f"ERROR: Could not parse Azure CLI output: {str(e)}")
         sys.exit(1)
     except Exception as e:
-        print(f"ERROR creating/retrieving service principal: {str(e)}")
+        print(f"ERROR: {str(e)}")
         sys.exit(1)
 
 def get_built_in_role_id(credential, subscription_id, role_name):
