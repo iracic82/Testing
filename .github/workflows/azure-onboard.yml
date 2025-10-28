@@ -1,0 +1,47 @@
+name: Onboard Azure Account for Infoblox DNS
+
+on:
+  workflow_dispatch:
+    inputs:
+      infoblox_app_id:
+        description: "Infoblox Application (Client) ID from Infoblox Portal"
+        required: true
+      subscription_id:
+        description: "Azure Subscription ID (optional - leave empty for Auto-Discover Multiple mode)"
+        required: false
+        default: ""
+
+jobs:
+  onboard:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install Azure CLI and Python dependencies
+        run: |
+          pip install azure-identity azure-mgmt-authorization azure-mgmt-resource azure-mgmt-subscription msgraph-sdk
+
+      - name: Run Azure Discovery and Configuration
+        env:
+          INFOBLOX_APP_ID: ${{ github.event.inputs.infoblox_app_id }}
+          AZURE_SUBSCRIPTION_ID: ${{ github.event.inputs.subscription_id }}
+        run: |
+          python configure_azure_permissions.py
+
+      - name: Display Configuration Summary
+        run: |
+          if [ -f azure_config_summary.txt ]; then
+            cat azure_config_summary.txt
+          fi
