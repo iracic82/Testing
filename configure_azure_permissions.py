@@ -149,25 +149,26 @@ def create_or_get_service_principal(credential, app_id):
             print(f"  ✓ Created Service Principal: {sp_id}")
             return sp_id
 
-        # Creation failed - check if it already exists
-        stderr_lower = result.stderr.lower()
-        if "already in use" in stderr_lower or "already exists" in stderr_lower or "insufficient privileges" in stderr_lower:
-            print("  Service principal may already exist, attempting to retrieve...")
-            result = subprocess.run(
-                ['az', 'ad', 'sp', 'show', '--id', app_id],
-                capture_output=True,
-                text=True
-            )
+        # Creation failed - always try to retrieve it (might already exist)
+        print("  Creation failed, attempting to retrieve existing service principal...")
+        print(f"  (Create error was: {result.stderr.strip()})")
 
-            if result.returncode == 0:
-                sp_data = json.loads(result.stdout)
-                sp_id = sp_data['id']
-                print(f"  ✓ Service Principal already exists: {sp_id}")
-                return sp_id
+        retrieve_result = subprocess.run(
+            ['az', 'ad', 'sp', 'show', '--id', app_id],
+            capture_output=True,
+            text=True
+        )
+
+        if retrieve_result.returncode == 0:
+            sp_data = json.loads(retrieve_result.stdout)
+            sp_id = sp_data['id']
+            print(f"  ✓ Service Principal already exists: {sp_id}")
+            return sp_id
 
         # Could not create or retrieve
         print(f"\nERROR: Could not create or retrieve service principal.")
-        print(f"Details: {result.stderr}")
+        print(f"Create error: {result.stderr}")
+        print(f"Retrieve error: {retrieve_result.stderr}")
         print("\nPossible solutions:")
         print("1. The service principal may already exist but you lack permissions to see it")
         print("2. Your GitHub Actions service principal needs 'Application Administrator' role in Azure AD")
